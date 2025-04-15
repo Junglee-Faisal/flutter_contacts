@@ -1,16 +1,15 @@
 package flutter.plugins.contactsservice.contactsservice;
 
-import android.annotation.TargetApi;
+import android.annotation.SuppressLint;
 import android.content.res.Resources;
 import android.database.Cursor;
-import android.os.Build;
 
 import static android.provider.ContactsContract.CommonDataKinds;
 import static android.provider.ContactsContract.CommonDataKinds.StructuredPostal;
 
 import java.util.HashMap;
 
-@TargetApi(Build.VERSION_CODES.ECLAIR)
+@SuppressLint("InlinedApi")
 public class PostalAddress {
 
     public String label, street, city, postcode, region, country;
@@ -49,20 +48,31 @@ public class PostalAddress {
         return new PostalAddress(label, street, city, postcode, region, country, type != null ? Integer.parseInt(type) : -1);
     }
 
+    @SuppressLint("InlinedApi")
     public static String getLabel(Resources resources, int type, Cursor cursor, boolean localizedLabels) {
-        if (localizedLabels) {
-            CharSequence localizedLabel = CommonDataKinds.StructuredPostal.getTypeLabel(resources, type, "");
-            return localizedLabel.toString().toLowerCase();
-        } else {
-            switch (cursor.getInt(cursor.getColumnIndex(StructuredPostal.TYPE))) {
-                case StructuredPostal.TYPE_HOME:
-                    return "home";
-                case StructuredPostal.TYPE_WORK:
-                    return "work";
-                case StructuredPostal.TYPE_CUSTOM:
-                    final String label = cursor.getString(cursor.getColumnIndex(StructuredPostal.LABEL));
-                    return label != null ? label : "";
+        try {
+            if (localizedLabels) {
+                CharSequence localizedLabel = CommonDataKinds.StructuredPostal.getTypeLabel(resources, type, "");
+                return localizedLabel.toString().toLowerCase();
+            } else {
+                int typeColumnIndex = cursor.getColumnIndex(StructuredPostal.TYPE);
+                if (typeColumnIndex != -1) {
+                    switch (cursor.getInt(typeColumnIndex)) {
+                        case StructuredPostal.TYPE_HOME:
+                            return "home";
+                        case StructuredPostal.TYPE_WORK:
+                            return "work";
+                        case StructuredPostal.TYPE_CUSTOM:
+                            int labelColumnIndex = cursor.getColumnIndex(StructuredPostal.LABEL);
+                            if (labelColumnIndex != -1) {
+                                final String label = cursor.getString(labelColumnIndex);
+                                return label != null ? label : "";
+                            }
+                    }
+                }
+                return "other";
             }
+        } catch (Exception e) {
             return "other";
         }
     }

@@ -1,3 +1,15 @@
+## [0.7.0] - April 15, 2025
+
+* Added support for Android 15 compatibility
+* Updated compile and target SDK versions to 35
+* Replaced deprecated `@TargetApi` annotations with `@SuppressLint("InlinedApi")`
+* Replaced deprecated AsyncTask with modern concurrency patterns
+* Improved cursor handling with proper checks for column indices
+* Enhanced content resolution with Bundle query arguments for Android 11+
+* Updated Gradle configuration and dependencies
+* Added namespace definition for modern Android builds
+* Updated SDK constraints to support newer Flutter and Dart versions
+
 ## [0.6.3] - September 21, 2021
 
 * Android: added method getContactsByEmail (@fjbatresv)

@@ -1,6 +1,6 @@
 package flutter.plugins.contactsservice.contactsservice;
 
-import android.annotation.TargetApi;
+import android.annotation.SuppressLint;
 import android.content.ContentProviderOperation;
 import android.content.ContentResolver;
 import android.content.ContentUris;
@@ -11,8 +11,10 @@ import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.net.Uri;
-import android.os.AsyncTask;
 import android.os.Build;
+import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.provider.BaseColumns;
 import android.provider.ContactsContract;
 import android.text.TextUtils;
@@ -29,6 +31,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
@@ -51,7 +54,7 @@ import static android.provider.ContactsContract.CommonDataKinds.Phone;
 import static android.provider.ContactsContract.CommonDataKinds.StructuredName;
 import static android.provider.ContactsContract.CommonDataKinds.StructuredPostal;
 
-@TargetApi(Build.VERSION_CODES.ECLAIR)
+@SuppressLint("InlinedApi")
 public class ContactsServicePlugin implements MethodCallHandler, FlutterPlugin, ActivityAware {
 
   private static final int FORM_OPERATION_CANCELED = 1;
@@ -206,17 +209,138 @@ public class ContactsServicePlugin implements MethodCallHandler, FlutterPlugin, 
           };
 
 
-  @TargetApi(Build.VERSION_CODES.ECLAIR)
+  @SuppressLint("InlinedApi")
   private void getContacts(String callMethod, String query, boolean withThumbnails, boolean photoHighResolution, boolean orderByGivenName, boolean localizedLabels, Result result) {
-    new GetContactsTask(callMethod, result, withThumbnails, photoHighResolution, orderByGivenName, localizedLabels).executeOnExecutor(executor, query, false);
+    executor.execute(new Runnable() {
+      @Override
+      public void run() {
+        try {
+          // Call the worker method that was previously in doInBackground
+          ArrayList<HashMap> contactMaps = fetchContacts(callMethod, query, null, withThumbnails,
+              photoHighResolution, orderByGivenName, localizedLabels, false);
+
+          // Post back to the main thread
+          new Handler(Looper.getMainLooper()).post(new Runnable() {
+            @Override
+            public void run() {
+              result.success(contactMaps);
+            }
+          });
+        } catch (Exception e) {
+          new Handler(Looper.getMainLooper()).post(new Runnable() {
+            @Override
+            public void run() {
+              result.error("error", e.getMessage(), null);
+            }
+          });
+        }
+      }
+    });
   }
 
   private void getContactsForPhone(String callMethod, String phone, boolean withThumbnails, boolean photoHighResolution, boolean orderByGivenName, boolean localizedLabels, Result result) {
-    new GetContactsTask(callMethod, result, withThumbnails, photoHighResolution, orderByGivenName, localizedLabels).executeOnExecutor(executor, phone, true);
+    executor.execute(new Runnable() {
+      @Override
+      public void run() {
+        try {
+          // Call the worker method that was previously in doInBackground
+          ArrayList<HashMap> contactMaps = fetchContacts(callMethod, null, phone, withThumbnails,
+              photoHighResolution, orderByGivenName, localizedLabels, true);
+
+          // Post back to the main thread
+          new Handler(Looper.getMainLooper()).post(new Runnable() {
+            @Override
+            public void run() {
+              result.success(contactMaps);
+            }
+          });
+        } catch (Exception e) {
+          new Handler(Looper.getMainLooper()).post(new Runnable() {
+            @Override
+            public void run() {
+              result.error("error", e.getMessage(), null);
+            }
+          });
+        }
+      }
+    });
   }
 
   private void getContactsForEmail(String callMethod, String email, boolean withThumbnails, boolean photoHighResolution, boolean orderByGivenName, boolean localizedLabels, Result result) {
-    new GetContactsTask(callMethod, result, withThumbnails, photoHighResolution, orderByGivenName, localizedLabels).executeOnExecutor(executor, email, true);
+    executor.execute(new Runnable() {
+      @Override
+      public void run() {
+        try {
+          // Call the worker method that was previously in doInBackground
+          ArrayList<HashMap> contactMaps = fetchContacts(callMethod, null, email, withThumbnails,
+              photoHighResolution, orderByGivenName, localizedLabels, true);
+
+          // Post back to the main thread
+          new Handler(Looper.getMainLooper()).post(new Runnable() {
+            @Override
+            public void run() {
+              result.success(contactMaps);
+            }
+          });
+        } catch (Exception e) {
+          new Handler(Looper.getMainLooper()).post(new Runnable() {
+            @Override
+            public void run() {
+              result.error("error", e.getMessage(), null);
+            }
+          });
+        }
+      }
+    });
+  }
+
+  // Worker method that contains what was previously in doInBackground of AsyncTask
+  @SuppressLint("InlinedApi")
+  private ArrayList<HashMap> fetchContacts(String callMethod, String query, String filter, boolean withThumbnails,
+                                        boolean photoHighResolution, boolean orderByGivenName, boolean localizedLabels,
+                                        boolean isFilterQuery) {
+    ArrayList<Contact> contacts;
+    switch (callMethod) {
+      case "openDeviceContactPicker": 
+        contacts = getContactsFrom(getCursor(null, filter), localizedLabels); 
+        break;
+      case "getContacts": 
+        contacts = getContactsFrom(getCursor(query, null), localizedLabels); 
+        break;
+      case "getContactsForPhone": 
+        contacts = getContactsFrom(getCursorForPhone(filter), localizedLabels); 
+        break;
+      case "getContactsForEmail": 
+        contacts = getContactsFrom(getCursorForEmail(filter), localizedLabels); 
+        break;
+      default: 
+        return null;
+    }
+
+    if (withThumbnails) {
+      for(Contact c : contacts){
+        final byte[] avatar = loadContactPhotoHighRes(
+                c.identifier, photoHighResolution, contentResolver);
+        if (avatar != null) {
+          c.avatar = avatar;
+        } else {
+          // To stay backwards-compatible, return an empty byte array rather than `null`.
+          c.avatar = new byte[0];
+        }
+      }
+    }
+
+    if (orderByGivenName) {
+      Collections.sort(contacts, (contactA, contactB) -> contactA.compareTo(contactB));
+    }
+
+    // Transform the list of contacts to a list of Map
+    ArrayList<HashMap> contactMaps = new ArrayList<>();
+    for(Contact c : contacts){
+      contactMaps.add(c.toMap());
+    }
+
+    return contactMaps;
   }
 
   @Override
@@ -425,101 +549,73 @@ public class ContactsServicePlugin implements MethodCallHandler, FlutterPlugin, 
     }
   }
 
-  @TargetApi(Build.VERSION_CODES.CUPCAKE)
-  private class GetContactsTask extends AsyncTask<Object, Void, ArrayList<HashMap>> {
-
-    private String callMethod;
-    private Result getContactResult;
-    private boolean withThumbnails;
-    private boolean photoHighResolution;
-    private boolean orderByGivenName;
-    private boolean localizedLabels;
-
-    public GetContactsTask(String callMethod, Result result, boolean withThumbnails, boolean photoHighResolution, boolean orderByGivenName, boolean localizedLabels) {
-      this.callMethod = callMethod;
-      this.getContactResult = result;
-      this.withThumbnails = withThumbnails;
-      this.photoHighResolution = photoHighResolution;
-      this.orderByGivenName = orderByGivenName;
-      this.localizedLabels = localizedLabels;
-    }
-
-    @TargetApi(Build.VERSION_CODES.ECLAIR)
-    protected ArrayList<HashMap> doInBackground(Object... params) {
-      ArrayList<Contact> contacts;
-      switch (callMethod) {
-        case "openDeviceContactPicker": contacts = getContactsFrom(getCursor(null, (String) params[0]), localizedLabels); break;
-        case "getContacts": contacts = getContactsFrom(getCursor((String) params[0], null), localizedLabels); break;
-        case "getContactsForPhone": contacts = getContactsFrom(getCursorForPhone(((String) params[0])), localizedLabels); break;
-        case "getContactsForEmail": contacts = getContactsFrom(getCursorForEmail(((String) params[0])), localizedLabels); break;
-        default: return null;
-      }
-
-      if (withThumbnails) {
-        for(Contact c : contacts){
-          final byte[] avatar = loadContactPhotoHighRes(
-                  c.identifier, photoHighResolution, contentResolver);
-          if (avatar != null) {
-            c.avatar = avatar;
-          } else {
-            // To stay backwards-compatible, return an empty byte array rather than `null`.
-            c.avatar = new byte[0];
-          }
-//          if ((Boolean) params[3])
-//              loadContactPhotoHighRes(c.identifier, (Boolean) params[3]);
-//          else
-//              setAvatarDataForContactIfAvailable(c);
-        }
-      }
-
-      if (orderByGivenName)
-      {
-        Comparator<Contact> compareByGivenName = new Comparator<Contact>() {
-          @Override
-          public int compare(Contact contactA, Contact contactB) {
-            return contactA.compareTo(contactB);
-          }
-        };
-        Collections.sort(contacts,compareByGivenName);
-      }
-
-      //Transform the list of contacts to a list of Map
-      ArrayList<HashMap> contactMaps = new ArrayList<>();
-      for(Contact c : contacts){
-        contactMaps.add(c.toMap());
-      }
-
-      return contactMaps;
-    }
-
-    protected void onPostExecute(ArrayList<HashMap> result) {
-      if (result == null) {
-        getContactResult.notImplemented();
-      } else {
-        getContactResult.success(result);
-      }
-    }
-  }
-
-
+  @SuppressLint("InlinedApi")
   private Cursor getCursor(String query, String rawContactId) {
-    String selection = "(" + ContactsContract.Data.MIMETYPE + "=? OR " + ContactsContract.Data.MIMETYPE + "=? OR "
-            + ContactsContract.Data.MIMETYPE + "=? OR " + ContactsContract.Data.MIMETYPE + "=? OR "
-            + ContactsContract.Data.MIMETYPE + "=? OR " + ContactsContract.Data.MIMETYPE + "=? OR "
-            + ContactsContract.Data.MIMETYPE + "=? OR " + ContactsContract.RawContacts.ACCOUNT_TYPE + "=?" + ")";
-    ArrayList<String> selectionArgs = new ArrayList<>(Arrays.asList(CommonDataKinds.Note.CONTENT_ITEM_TYPE, Email.CONTENT_ITEM_TYPE,
-            Phone.CONTENT_ITEM_TYPE, StructuredName.CONTENT_ITEM_TYPE, Organization.CONTENT_ITEM_TYPE,
-            StructuredPostal.CONTENT_ITEM_TYPE, CommonDataKinds.Event.CONTENT_ITEM_TYPE, ContactsContract.RawContacts.ACCOUNT_TYPE));
-    if (query != null) {
-      selectionArgs = new ArrayList<>();
-      selectionArgs.add(query + "%");
-      selection = ContactsContract.Contacts.DISPLAY_NAME_PRIMARY + " LIKE ?";
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+      // Android 11+ implementation using Bundle query arguments
+      Bundle queryArgs = new Bundle();
+      
+      // Base MIME type selection
+      String[] mimeTypes = {
+        CommonDataKinds.Note.CONTENT_ITEM_TYPE,
+        Email.CONTENT_ITEM_TYPE,
+        Phone.CONTENT_ITEM_TYPE,
+        StructuredName.CONTENT_ITEM_TYPE,
+        Organization.CONTENT_ITEM_TYPE,
+        StructuredPostal.CONTENT_ITEM_TYPE,
+        CommonDataKinds.Event.CONTENT_ITEM_TYPE
+      };
+      
+      String selection;
+      String[] selectionArgs;
+      
+      if (query != null) {
+        selection = ContactsContract.Contacts.DISPLAY_NAME_PRIMARY + " LIKE ?";
+        selectionArgs = new String[]{query + "%"};
+        
+        queryArgs.putString(ContentResolver.QUERY_ARG_SQL_SELECTION, selection);
+        queryArgs.putStringArray(ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS, selectionArgs);
+      } else if (rawContactId != null) {
+        selection = ContactsContract.Data.CONTACT_ID + " =?";
+        selectionArgs = new String[]{rawContactId};
+        
+        queryArgs.putString(ContentResolver.QUERY_ARG_SQL_SELECTION, selection);
+        queryArgs.putStringArray(ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS, selectionArgs);
+      } else {
+        // Build MIME type selection
+        StringBuilder mimeSelection = new StringBuilder();
+        for (int i = 0; i < mimeTypes.length; i++) {
+          mimeSelection.append(ContactsContract.Data.MIMETYPE).append(" =?");
+          if (i < mimeTypes.length - 1) {
+            mimeSelection.append(" OR ");
+          }
+        }
+        
+        queryArgs.putString(ContentResolver.QUERY_ARG_SQL_SELECTION, mimeSelection.toString());
+        queryArgs.putStringArray(ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS, mimeTypes);
+      }
+      
+      return contentResolver.query(ContactsContract.Data.CONTENT_URI, PROJECTION, queryArgs, null);
+    } else {
+      // Legacy implementation for older Android versions
+      String selection = "(" + ContactsContract.Data.MIMETYPE + "=? OR " + ContactsContract.Data.MIMETYPE + "=? OR "
+              + ContactsContract.Data.MIMETYPE + "=? OR " + ContactsContract.Data.MIMETYPE + "=? OR "
+              + ContactsContract.Data.MIMETYPE + "=? OR " + ContactsContract.Data.MIMETYPE + "=? OR "
+              + ContactsContract.Data.MIMETYPE + "=? OR " + ContactsContract.RawContacts.ACCOUNT_TYPE + "=?" + ")";
+      ArrayList<String> selectionArgs = new ArrayList<>(Arrays.asList(CommonDataKinds.Note.CONTENT_ITEM_TYPE, Email.CONTENT_ITEM_TYPE,
+              Phone.CONTENT_ITEM_TYPE, StructuredName.CONTENT_ITEM_TYPE, Organization.CONTENT_ITEM_TYPE,
+              StructuredPostal.CONTENT_ITEM_TYPE, CommonDataKinds.Event.CONTENT_ITEM_TYPE, ContactsContract.RawContacts.ACCOUNT_TYPE));
+      if (query != null) {
+          selectionArgs = new ArrayList<>();
+          selectionArgs.add(query + "%");
+          selection = ContactsContract.Contacts.DISPLAY_NAME_PRIMARY + " LIKE ?";
+      }
+      if (rawContactId != null) {
+          selectionArgs.add(rawContactId);
+          selection += " AND " + ContactsContract.Data.CONTACT_ID + " =?";
+      }
+      return contentResolver.query(ContactsContract.Data.CONTENT_URI, PROJECTION, selection, selectionArgs.toArray(new String[selectionArgs.size()]), null);
     }
-    if (rawContactId != null) {
-      selectionArgs.add(rawContactId);
-      selection += " AND " + ContactsContract.Data.CONTACT_ID + " =?";
-    }
-    return contentResolver.query(ContactsContract.Data.CONTENT_URI, PROJECTION, selection, selectionArgs.toArray(new String[selectionArgs.size()]), null);
   }
 
   private Cursor getCursorForPhone(String phone) {
@@ -653,33 +749,30 @@ public class ContactsServicePlugin implements MethodCallHandler, FlutterPlugin, 
 
   private void getAvatar(final Contact contact, final boolean highRes,
                          final Result result) {
-    new GetAvatarsTask(contact, highRes, contentResolver, result).executeOnExecutor(this.executor);
-  }
-
-  private static class GetAvatarsTask extends AsyncTask<Void, Void, byte[]> {
-    final Contact contact;
-    final boolean highRes;
-    final ContentResolver contentResolver;
-    final Result result;
-
-    GetAvatarsTask(final Contact contact, final boolean highRes,
-                   final ContentResolver contentResolver, final Result result) {
-      this.contact = contact;
-      this.highRes = highRes;
-      this.contentResolver = contentResolver;
-      this.result = result;
-    }
-
-    @Override
-    protected byte[] doInBackground(final Void... params) {
-      // Load avatar for each contact identifier.
-      return loadContactPhotoHighRes(contact.identifier, highRes, contentResolver);
-    }
-
-    @Override
-    protected void onPostExecute(final byte[] avatar) {
-      result.success(avatar);
-    }
+    executor.execute(new Runnable() {
+      @Override
+      public void run() {
+        try {
+          // Load avatar for the contact
+          final byte[] avatar = loadContactPhotoHighRes(contact.identifier, highRes, contentResolver);
+          
+          // Post back to the main thread
+          new Handler(Looper.getMainLooper()).post(new Runnable() {
+            @Override
+            public void run() {
+              result.success(avatar);
+            }
+          });
+        } catch (Exception e) {
+          new Handler(Looper.getMainLooper()).post(new Runnable() {
+            @Override
+            public void run() {
+              result.error("error", e.getMessage(), null);
+            }
+          });
+        }
+      }
+    });
   }
 
   private static byte[] loadContactPhotoHighRes(final String identifier,

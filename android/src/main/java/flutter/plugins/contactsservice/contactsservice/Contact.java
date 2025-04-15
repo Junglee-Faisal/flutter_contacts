@@ -1,8 +1,10 @@
 package flutter.plugins.contactsservice.contactsservice;
 
+import android.annotation.SuppressLint;
 import java.util.ArrayList;
 import java.util.HashMap;
 
+@SuppressLint("InlinedApi")
 public class Contact implements Comparable<Contact> {
 
     Contact(String id) {
